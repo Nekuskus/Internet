@@ -1,0 +1,2 @@
+[submodule "./I2CCom"]
+	url = https://github.com/dommilosz/I2CCom.git
