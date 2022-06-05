@@ -18,11 +18,11 @@
 static const uint16_t transfer_program_instructions[] = {
             //     .wrap_target
     0x6062, //  0: out    null, 2                    
-    0x80a0, //  1: pull   block                      
-    0xe029, //  2: set    x, 9                       
+    0xe029, //  1: set    x, 9                       
+    0xa042, //  2: nop                               
     0xa042, //  3: nop                               
-    0xa042, //  4: nop                               
-    0xa042, //  5: nop                               
+    0xe000, //  4: set    pins, 0                    
+    0x80a0, //  5: pull   block                      
     0x000f, //  6: jmp    15                         
     0xa042, //  7: nop                               
     0xa042, //  8: nop                               
@@ -48,7 +48,6 @@ static const struct pio_program transfer_program = {
 static inline pio_sm_config transfer_program_get_default_config(uint offset) {
     pio_sm_config c = pio_get_default_sm_config();
     sm_config_set_wrap(&c, offset + transfer_wrap_target, offset + transfer_wrap);
-    sm_config_set_sideset(&c, 4, true, false);
     return c;
 }
 #endif
@@ -90,7 +89,7 @@ static inline pio_sm_config receive_program_get_default_config(uint offset) {
 		sm_config_set_clkdiv(&c, 25);
 		sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 		sm_config_set_out_pins(&c, pin, 3);
-		sm_config_set_sideset_pins(&c, pin);
+		sm_config_set_set_pins(&c, pin, 3);
 		//true: output, false: input
 		pio_sm_set_consecutive_pindirs(pio, sm, pin, 3, true);
 		sm_config_set_out_special(&c, true, false, pin);

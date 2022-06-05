@@ -1,14 +1,13 @@
 ; wysyłanie na standardowych pinach
 
 .program transfer
-.side_set 3 opt
 tx:
 	out null, 2
-	pull
 	set x, 9
 	nop
 	nop
 	nop
+	pull 		side 000
 	jmp tx1
 txloop:
 	nop
@@ -45,7 +44,9 @@ rx1:
 		sm_config_set_clkdiv(&c, 25);
 		sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 		sm_config_set_out_pins(&c, pin, 3);
-		sm_config_set_sideset_pins(&c, pin, 3);
+		sm_config_set_sideset_pins(&c, pin);
+		sm_config_set_sideset_pins(&c, pin+1);
+		sm_config_set_sideset_pins(&c, pin+2);
 		//true: output, false: input
 		pio_sm_set_consecutive_pindirs(pio, sm, pin, 3, true);
 		
