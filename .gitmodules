@@ -1,2 +1,8 @@
 [submodule "./I2CCom"]
 	url = https://github.com/dommilosz/I2CCom.git
+[submodule "I2CCom"]
+	path = I2CCom
+	url = https://github.com/dommilosz/I2CCom.git
+[submodule "pico-sdk"]
+	path = pico-sdk
+	url = https://github.com/raspberrypi/pico-sdk
