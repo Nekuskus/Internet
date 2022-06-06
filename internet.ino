@@ -21,12 +21,10 @@ LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
 class L7Data {
 public:
   byte data[10];
-  L7Data() {
-    
-  }
   L7Data(byte _data[10]) {
     memcpy((void*) data, (const void *) _data, sizeof(data));
   }
+  L7Data& operator=(const L7Data&) = default; 
 };
 class L6Data {
 public:
@@ -35,15 +33,21 @@ public:
   //1 ICMP
   //2 SEND
   L7Data L7;
-  L6Data() {
+  L6Data(byte _protocolid, L7Data l7) : protocolid{_protocolid}, L7{l7} {
     
   }
-  L6Data(byte _protocolid, L7Data l7) {
-    protocolid = _protocolid;
-    L7 = l7;
-  }
+  L6Data& operator=(const L6Data&) = default; 
 };
 
+class L5Session {
+public:
+  byte sessionid;
+  L6Data L6;
+  L5Session(byte _sessionid, L6Data l6) : sessionid{_sessionid}, L6{l6} {
+  
+  }
+  L5Session& operator=(const L5Session&) = default; 
+};
 /*
   //------------------------------------------
   //----------TCP PROTOCOL STRUCTS------------
@@ -113,16 +117,11 @@ public:
   // 1 = apka od przytrzymywania przycisku
   // dhcp: source=68, dest=67
   // 0-254 = adresy aplikacji, np w I2CCom
-  L6Data L6;
-  L4DatagramUDP() {
+  L5Session L5;
+  L4DatagramUDP(byte _destinationport, byte _sourceport, L5Session l5, bool _istcp = false) : destinationport{_destinationport}, sourceport{_sourceport}, L5{l5}, istcp{_istcp} {
     
   }
-  L4DatagramUDP(byte _destinationport, byte _sourceport, L6Data l6, bool _istcp = false) {
-    destinationport = _destinationport;
-    sourceport = _sourceport;
-    L6 = l6;
-    istcp = _istcp;
-  }
+  L4DatagramUDP& operator=(const L4DatagramUDP&) = default; 
 };
 class L3PacketUDP {
 public:
@@ -131,16 +130,10 @@ public:
   uint32_t sourcemask;
   byte TTL;
   L4DatagramUDP L4;
-  L3PacketUDP() {
+  L3PacketUDP(uint32_t _destinationip, uint32_t _sourceip, uint32_t _sourcemask, byte _TTL, L4DatagramUDP l4) : destinationip{_destinationip}, sourceip{_sourceip}, sourcemask{_sourcemask}, TTL{_TTL}, L4{l4} {
   
   }
-  L3PacketUDP(uint32_t _destinationip, uint32_t _sourceip, uint32_t _sourcemask, byte _TTL, L4DatagramUDP l4) {
-    destinationip = _destinationip;
-    sourceip = _sourceip;
-    sourcemask = _sourcemask;
-    TTL = _TTL;
-    L4 = l4;
-  }
+  L3PacketUDP& operator=(const L3PacketUDP&) = default; 
 };
 class L2FrameUDP {
 public:
@@ -148,13 +141,11 @@ public:
   byte sourcemac[6];
   L3PacketUDP L3;
   uint32_t crc;
-  L2FrameUDP() {
-    
-  }
-  L2FrameUDP(byte _destinationmac[6], byte _sourcemac[6], L3PacketUDP l3, uint32_t _crc = 0) {
+  L2FrameUDP(byte _destinationmac[6], byte _sourcemac[6], L3PacketUDP l3, uint32_t _crc = 0) : L3{l3}, crc{_crc} {
     memcpy((void *)&destinationmac, (const void *)&_destinationmac, sizeof(destinationmac));
     memcpy((void *)&sourcemac, (const void *)&_sourcemac, sizeof(sourcemac));  
   }
+  L2FrameUDP& operator=(const L2FrameUDP&) = default;
 };
 
 //------------------------------------------
@@ -246,33 +237,35 @@ void setup() {
   
   L7Data l7(dhcpdata);
   //memcpy(&(l7.data), &dhcpdata, sizeof(dhcpdata));
-  
-  L6Data l6(0, l7);
-  //l6.protocolid = 0; //dhcp
-  //l6.L7 = l7;
-  
-  L4DatagramUDP l4(67, 68, l6, false);
-  //l4.destinationport = 67;
-  //l4.sourceport = 68;
-  //l4.L6 = l6;
-  //l4.istcp = false;
 
-  L3PacketUDP l3(0xFFFFFFFF, 0x00000000, 0x00000000, 18, l4);
-  //l3.destinationip    = 0xFFFFFFFF;
-  //l3.sourceip         = 0x00000000;
-  //l3.sourcemask       = 0x00000000;
-  //l3.TTL = 18;
-  //l3.L4 = l4;
+  byte protocolid = 0; //dhcp
+  L6Data l6(protocolid, l7);
+
+  byte sessionid = 0;
+  L5Session l5(sessionid, l6);
+  
+  byte destinationport = 67;
+  byte sourceport = 68;
+  bool istcp = false;
+  L4DatagramUDP l4(destinationport, sourceport, l5, istcp);
+  
+  uint32_t destinationip    = 0xFFFFFFFF;
+  uint32_t sourceip         = 0x00000000;
+  uint32_t sourcemask       = 0x00000000;
+  byte TTL = 18;
+  //lcd.print(TTL);
+  L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
+  
 
   byte destinationmac[6]  = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
   byte sourcemac[6]       = {0x1, 0x2, 0x3, 0x4, 0x5, 0x6};
   L2FrameUDP l2(destinationmac, sourcemac, l3, 0x0);
   //memcpy((void *)&(l2.destinationmac), (const void *)&destinationmac, sizeof(destinationmac));
   //memcpy((void *)&(l2.sourcemac), (const void *)&sourcemac, sizeof(destinationmac));
-  //l2.crc = 0x7;
+  //l2.crc = 0x0;
   //l2.crc = calculatecrc32(l2);
-
   sendpacket(l2);
+  //L2FrameUDP testl2{destinationmac, sourcemac, {destinationip, sourceip, sourcemask, TTL, {destinationport, sourceport, {sessionid, {protocolid, {dhcpdata}}}, false}}, 0x0};
 }
 
 
