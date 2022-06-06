@@ -190,6 +190,34 @@ volatile uint sm_transfer = pio_claim_unused_sm(pio, true);
 volatile uint sm_receive  = pio_claim_unused_sm(pio, true);
 
 
+void lcdwritepacket(L2FrameUDP l2, bool incoming, int ipsystem=DEC) {
+  lcd.setCursor(0, lcdline);
+  lcd.print(incoming ? '<' : '>');
+  lcd.print(protocols[l2.L3.L4.L5.L6.protocolid]);
+  lcd.print(' ');
+  if(ipsystem == HEX) {
+      lcd.print("0x");
+      for(int i = 3; i >= 0; i--) {
+        lcd.print((l2.L3.destinationip >> (i*8)) & 0b11111111, HEX);
+      }
+  } else if(ipsystem == BIN) {
+    lcd.print("0b");
+    for(int i = 3; i >= 0; i--) {
+      lcd.print((l2.L3.destinationip >> (i*8)) & 0b11111111, BIN);
+    }
+  } else if(ipsystem == OCT) {
+    lcd.print("0o");
+    for(int i = 3; i >= 0; i--) {
+      lcd.print((l2.L3.destinationip >> (i*8)) & 0b11111111, OCT);
+    }
+  } else { //assume DEC
+    for(int i = 3; i >= 0; i--) {
+      lcd.print((l2.L3.destinationip >> (i*8)) & 0b11111111, DEC);
+      if(i != 0) lcd.print(".");
+    }
+  } 
+  lcdline = (lcdline == 0) ? 1 : 0;
+}
 
 void setup() {
   // data pins
@@ -252,7 +280,7 @@ void setup() {
   uint32_t destinationip    = 0xFFFFFFFF;
   uint32_t sourceip         = 0x00000000;
   uint32_t sourcemask       = 0x00000000;
-  byte TTL = 18;
+  byte TTL = 254;
   //lcd.print(TTL);
   L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
   
@@ -264,22 +292,24 @@ void setup() {
   //memcpy((void *)&(l2.sourcemac), (const void *)&sourcemac, sizeof(destinationmac));
   //l2.crc = 0x0;
   //l2.crc = calculatecrc32(l2);
-  sendpacket(l2);
+
+  delay(2500);
+  
+  lcdwritepacket(l2, false);
+
+  l2.L3.L4.L5.L6.protocolid = 1;
+
+  delay(2500);
+  
+  lcdwritepacket(l2, false, HEX);
+
+  l2.L3.L4.L5.L6.protocolid = 2;
+
+  delay(2500);
+  
+  lcdwritepacket(l2, false, OCT);
+  
   //L2FrameUDP testl2{destinationmac, sourcemac, {destinationip, sourceip, sourcemask, TTL, {destinationport, sourceport, {sessionid, {protocolid, {dhcpdata}}}, false}}, 0x0};
-}
-
-
-void sendpacket(L2FrameUDP l2) {
-  lcd.setCursor(0, lcdline);
-  lcd.print('>');
-  lcd.print(l2.L3.TTL);
-  lcd.print(' ');
-  //for(int i = 6; i >= 0; i-=2) {
-   // lcd.print((l2.L3.destinationip >> (i*8)) & 0b11111111, DEC);
-   // if(i != 0) lcd.print(".");
-  //}
-  lcd.print(l2.L3.destinationip);
-  lcdline = (lcdline == 0) ? 1 : 0;
 }
 
 void loop() {
