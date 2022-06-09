@@ -7,21 +7,33 @@
 #include <bitset>
 #include "hardware/watchdog.h"
 #include "hardware/uart.h"
+#include "pico/util/queue.h"
 
 #define UART_ID uart0
 #define BAUD_RATE 9600
 #define UART_TX_PIN 0
 #define UART_RX_PIN 1
 
+volatile bool is_writing = false;
+
+queue_t receivedpackets;
+
 char hex[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 
-byte macaddress[6] = {0b10000101, 0b10010000, 0b00000000, 0b00000000, 0b00000000, 0x1};
+byte macaddress[6] = {0b10000101, 0b10010000, 0b00000000, 0b00000000, 0b00000000, 0x2};
 
 uint32_t gatewayaddress;
-uint32_t gatewaymask;
-int lcdline = 1;
-String protocols[3] = {"DHCP", "ICMP", "SEND"};
+uint8_t gatewaymac[6];
+uint32_t ipaddress;
+uint32_t ipmask;
 
+uint32_t otherhostip = 0;
+
+volatile int lcdline = 1;
+String protocols[4] = {"DHCP", "ICMP", "SEND", "ARP "};
+
+bool got_ip_dhcp = false;
+bool got_offer_dhcp = false;
 
 LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
 
@@ -240,31 +252,43 @@ void lcdwritepacket(L2FrameUDP l2, bool incoming, int ipsystem = DEC) {
       ipsystem = HEX;
     }
   }
-  if (ipsystem == HEX) {
-    lcd.print("0x");
-    for (int i = 3; i >= 0; i--) {
-      lcd.print((curip >> (i * 8)) & 0b11111111, HEX);
+  while(is_writing == true) {}
+  is_writing = true;
+  if(l2.L3.L4.L5.L6.protocolid != 2) { //other
+    if(ipsystem == HEX) {
+      lcd.print("0x");
+      for (int i = 3; i >= 0; i--) {
+        lcd.print((curip >> (i * 8)) & 0b11111111, HEX);
+      }
+    } else if (ipsystem == BIN) {
+      lcd.print("0b");
+      for (int i = 3; i >= 0; i--) {
+        lcd.print((curip >> (i * 8)) & 0b11111111, BIN);
+      }
+    } else if (ipsystem == OCT) {
+      lcd.print("0o");
+      for (int i = 3; i >= 0; i--) {
+        lcd.print((curip >> (i * 8)) & 0b11111111, OCT);
+      }
+    } else { //assume DEC
+      for (int i = 3; i >= 0; i--) {
+        lcd.print((curip >> (i * 8)) & 0b11111111, DEC);
+        if (i != 0) lcd.print(".");
+      }
     }
-  } else if (ipsystem == BIN) {
-    lcd.print("0b");
-    for (int i = 3; i >= 0; i--) {
-      lcd.print((curip >> (i * 8)) & 0b11111111, BIN);
-    }
-  } else if (ipsystem == OCT) {
-    lcd.print("0o");
-    for (int i = 3; i >= 0; i--) {
-      lcd.print((curip >> (i * 8)) & 0b11111111, OCT);
-    }
-  } else { //assume DEC
-    for (int i = 3; i >= 0; i--) {
-      lcd.print((curip >> (i * 8)) & 0b11111111, DEC);
-      if (i != 0) lcd.print(".");
-    }
+  } else { //send
+    int duration = (l2.L3.L4.L5.L6.L7.data0 << (8*3)) + (l2.L3.L4.L5.L6.L7.data1 << (8*2)) + (l2.L3.L4.L5.L6.L7.data2 << (8)) + l2.L3.L4.L5.L6.L7.data3;
+    lcd.print(duration);
+    lcd.print('s');
   }
   lcdline = (lcdline == 0) ? 1 : 0;
+  is_writing = false;
 }
 
 void sendpacketUDP(L2FrameUDP l2) {
+
+  while(!uart_is_writable(UART_ID)) {}
+  
   //std::bitset<sizeof(L2FrameUDP) * 8> packet = *(reinterpret_cast<std::bitset<sizeof(L2FrameUDP) * 8>*>(&l2));
   uint8_t* bytes = reinterpret_cast<uint8_t*>(&l2);
   //lcd.print(((unsigned int)packet[0] << 7) + ((unsigned int)packet[1] << 6) + ((unsigned int)packet[2] << 5) + ((unsigned int)packet[3] << 4) + ((unsigned int)packet[4] << 3) + ((unsigned int)packet[5] << 2) + ((unsigned int)packet[6] << 1) + (unsigned int)packet[7], BIN);
@@ -279,6 +303,7 @@ void sendpacketUDP(L2FrameUDP l2) {
   //pio_sm_put_blocking(pio, sm_transfer, (packet[(sizeof(L2FrameUDP) * 8) - 1] << 11) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 1] << 10) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 2] << 9) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 3] << 8) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 4] << 7) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 5] << 6) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 6] << 5) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 7] << 4) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 8] << 3) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 9] << 2) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 10] << 1) + packet[(sizeof(L2FrameUDP) * 8) - 1 - 11]);
   uart_write_blocking(UART_ID, bytes, sizeof(L2FrameUDP));
 }
+
 
 void setup() {
   /*
@@ -299,12 +324,14 @@ void setup() {
   pinMode(7, OUTPUT);  //D7
   //pinMode(26, OUTPUT); // V0 CONTRAST
   //analogWrite(26, 60);
-
+  */
+  
   // function buttons
   pinMode(13, INPUT_PULLUP);
   pinMode(14, INPUT_PULLUP);
   pinMode(15, INPUT_PULLUP);
-
+  
+  /*
   pinMode(LED_BUILTIN, OUTPUT);
   transfer_program_init(pio, sm_transfer, offset0, 0);
   receive_program_init (pio, sm_receive,  offset1, 3);
@@ -312,13 +339,16 @@ void setup() {
   delay(2000);
   digitalWrite(LED_BUILTIN, LOW);
   */
+  
   uart_init(UART_ID, BAUD_RATE);
-
+  uart_set_fifo_enabled(UART_ID, true);
+  
   gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
   gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
-  
-  multicore_launch_core1(loopreceive);
+   
   watchdog_enable(20000, 0);
+
+  queue_init(&receivedpackets, sizeof(L2FrameUDP), 16);
 
   lcd.begin(16, 2);
   lcd.clear();
@@ -333,56 +363,315 @@ void setup() {
   //}
   lcd.setCursor(0, 1);
   watchdog_update();
-  bool got_ip = false;
-  while(!got_ip) {
+
+
+  multicore_launch_core1(loopreceive);
+  
+  while(!got_ip_dhcp) {
     watchdog_update();
 
-  byte dhcpdata[10] = {53, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}; // DHCPDISCOVER
-
-  L7Data l7(dhcpdata);
-  //memcpy(&(l7.data), &dhcpdata, sizeof(dhcpdata));
-
-  byte protocolid = 0; //dhcp
-  L6Data l6(protocolid, l7);
-
-  byte sessionid = 0;
-  L5Session l5(sessionid, l6);
-
-  byte destinationport = 67;
-  byte sourceport = 68;
-  bool istcp = false;
-  L4DatagramUDP l4(destinationport, sourceport, l5, istcp);
-
-  uint32_t destinationip    = 0xFFFFFFFF;
-  uint32_t sourceip         = 0x00000000;
-  uint32_t sourcemask       = 0x00000000;
-  byte TTL = 254;
-  L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
-
-  watchdog_update();
-
-  byte destinationmac[6]  = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-  L2FrameUDP l2(destinationmac, macaddress, l3, 0x0);
-  l2.crc = calculatecrc32(l2);
-  
-  sendpacketUDP(l2);
-  lcdwritepacket(l2, false, HEX);
-  
-  watchdog_update();
-  delay(5000);
-  
+    if(queue_get_level(&receivedpackets) >= 1) {
+      byte temparr1[6] = {0, 0, 0, 0, 0, 0};
+      byte temparr2[6] = {0, 0, 0, 0, 0, 0};
+      byte temparr3[10] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+      L2FrameUDP received(temparr1, temparr2, {0x0, 0x0, 0x0, 0x0, {0x0, 0x0, {0x0, {0x0, {temparr3}}}, false}}, 0x0);
+      queue_remove_blocking(&receivedpackets, (void*)&received);
+      lcdwritepacket(received, true, DEC);
+      if((received.L3.L4.L5.L6.protocolid == 0) && (received.L3.L4.L5.L6.L7.data0 == 53) && (received.L3.L4.L5.L6.L7.data1 == 0x2)) {
+        byte dhcpdata[10] = {53, 0x3, received.L3.L4.L5.L6.L7.data2, received.L3.L4.L5.L6.L7.data3, received.L3.L4.L5.L6.L7.data4, received.L3.L4.L5.L6.L7.data5, received.L3.L4.L5.L6.L7.data6, received.L3.L4.L5.L6.L7.data7, received.L3.L4.L5.L6.L7.data8, received.L3.L4.L5.L6.L7.data9}; // DHCPREQUEST
+        L7Data l7(dhcpdata);
+        //memcpy(&(l7.data), &dhcpdata, sizeof(dhcpdata));
+        byte protocolid = 0; //dhcp
+        L6Data l6(protocolid, l7);
+        byte sessionid = 0;
+        L5Session l5(sessionid, l6);
+        byte destinationport = 67;
+        byte sourceport = 68;
+        bool istcp = false;
+        L4DatagramUDP l4(destinationport, sourceport, l5, istcp);    
+        uint32_t destinationip    = 0xFFFFFFFF;
+        uint32_t sourceip         = 0x00000000;
+        uint32_t sourcemask       = 0x00000000;
+        byte TTL = 254;
+        L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
+        watchdog_update();
+        
+        byte destinationmac[6]  = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        L2FrameUDP l2(destinationmac, macaddress, l3, 0x0);
+        //l2.crc = calculatecrc32(l2);
+        sendpacketUDP(l2);
+        lcdwritepacket(l2, false, HEX);
+        got_offer_dhcp = true;
+      } else if ((received.L3.L4.L5.L6.protocolid == 0) && (received.L3.L4.L5.L6.L7.data0 == 53) && (received.L3.L4.L5.L6.L7.data1 == 0x5)) {
+        gatewayaddress = received.L3.sourceip;
+        gatewaymac[0] = received.sourcemac0;
+        gatewaymac[1] = received.sourcemac1;
+        gatewaymac[2] = received.sourcemac2;
+        gatewaymac[3] = received.sourcemac3;
+        gatewaymac[4] = received.sourcemac4;
+        gatewaymac[5] = received.sourcemac5;
+        ipaddress = received.L3.destinationip;
+        ipmask = received.L3.sourcemask;
+        got_ip_dhcp = true;  
+      }
+    } else {
+      if(!got_offer_dhcp) {
+        byte dhcpdata[10] = {53, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}; // DHCPDISCOVER
+        L7Data l7(dhcpdata);
+        //memcpy(&(l7.data), &dhcpdata, sizeof(dhcpdata));
+        byte protocolid = 0; //dhcp
+        L6Data l6(protocolid, l7);
+        byte sessionid = 0;
+        L5Session l5(sessionid, l6);
+        byte destinationport = 67;
+        byte sourceport = 68;
+        bool istcp = false;
+        L4DatagramUDP l4(destinationport, sourceport, l5, istcp);    
+        uint32_t destinationip    = 0xFFFFFFFF;
+        uint32_t sourceip         = 0x00000000;
+        uint32_t sourcemask       = 0x00000000;
+        byte TTL = 254;
+        L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
+        
+        watchdog_update();
+        
+        byte destinationmac[6]  = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        L2FrameUDP l2(destinationmac, macaddress, l3, 0x0);
+        l2.crc = calculatecrc32(l2);
+        sendpacketUDP(l2);
+        lcdwritepacket(l2, false, HEX);
+      }
+    }
+    watchdog_update();
+    delay(1000);
   }
-
 }
 
-void loop() {
-
-  
-}
+bool button15pressed = false; // send butotn
+bool button14pressed = false; // icmp button (has priority)
+uint32_t press15started = 0;
 
 
 void loopreceive() {
+  uint8_t rxbuffer;
+  queue_t rxqueue;
+  queue_init(&rxqueue, 1, (sizeof(L2FrameUDP) * 8) - 1);
+  bool avail = false;
+  int lastavail = 0;
+  int samecounter = 0;
+  
   while (true) {
-    //pio_sm_get_blocking(pio, sm_receive);
+    avail = uart_is_readable(UART_ID);
+    if(avail == lastavail) {
+      samecounter++;
+      if(samecounter >= 40) {
+        samecounter = 0;
+        while(is_writing == true) {}
+        is_writing = true;
+        lcd.setCursor(0, lcdline);
+        lcd.print("Connection lost");
+        lcdline = (lcdline == 0) ? 1 : 0;
+        is_writing = false;
+      } else {
+        lastavail = avail;
+        samecounter = 0;
+      } 
+    }
+    if(avail) {
+      int bytecount = 0; // queue is 351B == (sizeof(L2FrameUDP) * 8) - 1, only 7 correct packets can be stored, the last 43 bytes of data is to account for the bad bytes to be discared
+      while((avail == true) && (bytecount < ((sizeof(L2FrameUDP) * 7) - 1))) {
+        uart_read_blocking(UART_ID, &rxbuffer, 1);
+        queue_try_add(&rxqueue, (void*)&rxbuffer);
+        bytecount++;
+        avail = uart_is_readable(UART_ID);
+      }
+      int queuelevel = queue_get_level(&rxqueue);
+      int multiple = 0;
+      while((multiple * sizeof(L2FrameUDP)) < queuelevel) {
+        multiple = multiple + 1;
+      }
+      multiple = multiple - 1;
+      for(int i = 0; i < (queuelevel - (multiple * sizeof(L2FrameUDP))); i++) {
+        queue_remove_blocking(&rxqueue, NULL);
+      }
+      for(int i = 0; i < multiple; i++) {
+        uint8_t bytes[44];  
+        for(int i2 = 0; i < 44; i2++) {
+          if(queue_try_remove(&rxqueue, (void*)&(bytes[i2]))) {
+          }
+          else {
+            while(is_writing == true) {}
+            is_writing = true;
+            lcd.setCursor(0, lcdline);
+            lcd.print("Remove error");
+            lcdline = (lcdline == 0) ? 1 : 0;
+            is_writing = false;
+          }
+          L2FrameUDP received = *(reinterpret_cast<L2FrameUDP*>(bytes));
+          while(!queue_try_add(&receivedpackets, (void*)&received)) {}
+        }
+      } 
+    }
+    delay(1000);  
+  }
+}
+
+void loop() {
+  if(queue_get_level(&receivedpackets) >= 1) {
+    byte temparr1[6] = {0, 0, 0, 0, 0, 0};
+    byte temparr2[6] = {0, 0, 0, 0, 0, 0};
+    byte temparr3[10] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+    L2FrameUDP received(temparr1, temparr2, {0x0, 0x0, 0x0, 0x0, {0x0, 0x0, {0x0, {0x0, {temparr3}}}, false}}, 0x0);
+    queue_remove_blocking(&receivedpackets, (void*)&received);
+    lcdwritepacket(received, true, DEC);
+    if(received.L3.L4.L5.L6.protocolid == 4) {
+      otherhostip = (received.L3.L4.L5.L6.L7.data0 << (8*3)) + (received.L3.L4.L5.L6.L7.data1 << (8*2)) + (received.L3.L4.L5.L6.L7.data2 << (8)) + received.L3.L4.L5.L6.L7.data3;
+    } else if(received.L3.L4.L5.L6.protocolid == 1) {
+      if(otherhostip == 0) {
+        byte icmpdata[10] = {macaddress[0],  macaddress[1], macaddress[2], macaddress[3], macaddress[4], 0x1, 0x0, 0x0, 0x0, 0x0};
+        L7Data l7(icmpdata);
+        L6Data l6(4 /* arp */, l7);
+        L5Session l5(0, l6);
+        L4DatagramUDP l4(0, 0, l5, false);
+        uint32_t destinationip    = gatewayaddress;
+        uint32_t sourceip         = ipaddress;
+        uint32_t sourcemask       = ipmask;
+        byte TTL = 254;
+        L3PacketUDP l3(gatewayaddress, sourceip, sourcemask, TTL, l4);
+        
+        watchdog_update();
+        
+        L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
+        l2.crc = calculatecrc32(l2);
+        sendpacketUDP(l2);
+        lcdwritepacket(l2, false, HEX);
+        watchdog_update();
+      } else {
+        byte senddata[10] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}; // 0: 0 echo reply
+        L7Data l7(senddata);
+        L6Data l6(1 /* send */, l7);
+        L5Session l5(0, l6);
+        L4DatagramUDP l4(0, 0, l5, false);
+        uint32_t destinationip    = gatewayaddress;
+        uint32_t sourceip         = otherhostip;
+        uint32_t sourcemask       = ipmask;
+        byte TTL = 254;
+        L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
+        
+        watchdog_update();
+        
+        L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
+        l2.crc = calculatecrc32(l2);
+        sendpacketUDP(l2);
+        lcdwritepacket(l2, false, HEX);
+        watchdog_update();
+      }
+    } else if (received.L3.L4.L5.L6.protocolid == 2) { // send  
+      //nothing to be done here actually
+    }
+  } else {
+    if(button14pressed) {
+      if(digitalRead(14) == LOW) {
+        button14pressed = true;
+      } else {
+        //send arp, send icmp
+        button14pressed = false;
+        if(otherhostip == 0) {
+          byte icmpdata[10] = {macaddress[0],  macaddress[1], macaddress[2], macaddress[3], macaddress[4], 0x1, 0x0, 0x0, 0x0, 0x0};
+          L7Data l7(icmpdata);
+          L6Data l6(4 /* arp */, l7);
+          L5Session l5(0, l6);
+          L4DatagramUDP l4(0, 0, l5, false);
+          uint32_t destinationip    = gatewayaddress;
+          uint32_t sourceip         = ipaddress;
+          uint32_t sourcemask       = ipmask;
+          byte TTL = 254;
+          L3PacketUDP l3(gatewayaddress, sourceip, sourcemask, TTL, l4);
+          
+          watchdog_update();
+          
+          L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
+          l2.crc = calculatecrc32(l2);
+          sendpacketUDP(l2);
+          lcdwritepacket(l2, false, HEX);
+          watchdog_update();
+        } else {
+          byte icmpdata[10] = {80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}; // 8: 0 echo request
+          L7Data l7(icmpdata);
+          L6Data l6(1 /* icmp */, l7);
+          L5Session l5(0, l6);
+          L4DatagramUDP l4(0, 0, l5, false);
+          uint32_t destinationip    = gatewayaddress;
+          uint32_t sourceip         = otherhostip;
+          uint32_t sourcemask       = ipmask;
+          byte TTL = 254;
+          L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
+          
+          watchdog_update();
+          
+          L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
+          l2.crc = calculatecrc32(l2);
+          sendpacketUDP(l2);
+          lcdwritepacket(l2, false, HEX);
+          watchdog_update();
+        }
+      }
+    } else if (button15pressed){
+      if(digitalRead(15) == LOW) {
+        button15pressed = true;
+      } else {
+        button15pressed = false;
+        int32_t duration = press15started - millis();
+        press15started = 0;
+        //send arp, send send
+        if(otherhostip == 0) {
+          byte icmpdata[10] = {macaddress[0],  macaddress[1], macaddress[2], macaddress[3], macaddress[4], 0x2, 0x0, 0x0, 0x0, 0x0};
+          L7Data l7(icmpdata);
+          L6Data l6(4 /* arp */, l7);
+          L5Session l5(0, l6);
+          L4DatagramUDP l4(0, 0, l5, false);
+          uint32_t destinationip    = gatewayaddress;
+          uint32_t sourceip         = ipaddress;
+          uint32_t sourcemask       = ipmask;
+          byte TTL = 254;
+          L3PacketUDP l3(gatewayaddress, sourceip, sourcemask, TTL, l4);
+          
+          watchdog_update();
+          
+          L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
+          l2.crc = calculatecrc32(l2);
+          sendpacketUDP(l2);
+          lcdwritepacket(l2, false, HEX);
+          watchdog_update();
+        } else {
+          byte senddata[10] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+          L7Data l7(senddata);
+          L6Data l6(2 /* send */, l7);
+          L5Session l5(0, l6);
+          L4DatagramUDP l4(0, 0, l5, false);
+          uint32_t destinationip    = gatewayaddress;
+          uint32_t sourceip         = otherhostip;
+          uint32_t sourcemask       = ipmask;
+          byte TTL = 254;
+          L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
+          
+          watchdog_update();
+          
+          L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
+          l2.crc = calculatecrc32(l2);
+          sendpacketUDP(l2);
+          lcdwritepacket(l2, false, HEX);
+          watchdog_update();
+        }
+      }
+    } else {
+      if(digitalRead(14) == LOW) {
+        button14pressed = true;
+      } else if(digitalRead(15) == LOW) {
+        button15pressed = true;
+        press15started = millis();
+      }
+    }
+    delay(1000);
   }
 }
