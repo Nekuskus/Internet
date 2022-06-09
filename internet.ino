@@ -333,14 +333,9 @@ void setup() {
   //}
   lcd.setCursor(0, 1);
   watchdog_update();
-  //pio_sm_put_blocking(pio, sm_transfer, 0b00100111111111111111111111111111);
-
-  //L2FrameUDP testl2{destinationmac, sourcemac, {destinationip, sourceip, sourcemask, TTL, {destinationport, sourceport, {sessionid, {protocolid, {dhcpdata}}}, false}}, 0x0};
-}
-
-void loop() {
-
-  watchdog_update();
+  bool got_ip = false;
+  while(!got_ip) {
+    watchdog_update();
 
   byte dhcpdata[10] = {53, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}; // DHCPDISCOVER
 
@@ -362,31 +357,27 @@ void loop() {
   uint32_t sourceip         = 0x00000000;
   uint32_t sourcemask       = 0x00000000;
   byte TTL = 254;
-  //lcd.print(TTL);
   L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
 
   watchdog_update();
 
   byte destinationmac[6]  = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-  byte sourcemac[6]       = {0x1, 0x2, 0x3, 0x4, 0x5, 0x6};
-  L2FrameUDP l2(destinationmac, sourcemac, l3, 0x0);
-  //memcpy((void *)&(l2.destinationmac), (const void *)&destinationmac, sizeof(destinationmac));
-  //memcpy((void *)&(l2.sourcemac), (const void *)&sourcemac, sizeof(destinationmac));
-  //l2.crc = 0x0;
-  //l2.crc = calculatecrc32(l2);
-
-  //L1BitsUDP l1(l2);
-
-  //lcdwritepacket(l2, false, -1);
-
-  //lcd.print(sizeof(l2) + sizeof(l3) + sizeof(l4) + sizeof(l5) + sizeof(l6) + sizeof(l7));
-  //pio_sm_put_blocking(pio, sm_transfer, )
-  watchdog_update();
+  L2FrameUDP l2(destinationmac, macaddress, l3, 0x0);
+  l2.crc = calculatecrc32(l2);
+  
   sendpacketUDP(l2);
   lcdwritepacket(l2, false, HEX);
-  //while (true) {}
+  
   watchdog_update();
   delay(5000);
+  
+  }
+
+}
+
+void loop() {
+
+  
 }
 
 
