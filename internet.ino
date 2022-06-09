@@ -5,7 +5,7 @@
 #include "pico/multicore.h"
 #include <LiquidCrystal.h>
 #include <bitset>
-#include "hardware/watchdog.h"
+//#include "hardware/watchdog.h"
 #include "hardware/uart.h"
 #include "pico/util/queue.h"
 
@@ -20,7 +20,7 @@ queue_t receivedpackets;
 
 char hex[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 
-byte macaddress[6] = {0b10000101, 0b10010000, 0b00000000, 0b00000000, 0b00000000, 0x2};
+byte macaddress[6] = {0b10000101, 0b10010000, 0b00000000, 0b00000000, 0b00000000, 0x1};
 
 uint32_t gatewayaddress;
 uint8_t gatewaymac[6];
@@ -314,7 +314,7 @@ void setup() {
   pinMode(4, OUTPUT);
   pinMode(5, OUTPUT);
   pinMode(6, OUTPUT);
-
+  */
   // lcd pins
   pinMode(12, OUTPUT); //RS
   pinMode(11, OUTPUT); //ENABLE
@@ -324,7 +324,6 @@ void setup() {
   pinMode(7, OUTPUT);  //D7
   //pinMode(26, OUTPUT); // V0 CONTRAST
   //analogWrite(26, 60);
-  */
   
   // function buttons
   pinMode(13, INPUT_PULLUP);
@@ -346,7 +345,7 @@ void setup() {
   gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
   gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
    
-  watchdog_enable(20000, 0);
+  //watchdog_enable(20000, 0);
 
   queue_init(&receivedpackets, sizeof(L2FrameUDP), 16);
 
@@ -362,19 +361,25 @@ void setup() {
     //lcd.print("Watchdog trigger");
   //}
   lcd.setCursor(0, 1);
-  watchdog_update();
+  //watchdog_update();
 
 
   multicore_launch_core1(loopreceive);
   
   while(!got_ip_dhcp) {
-    watchdog_update();
+   // watchdog_update();
 
     if(queue_get_level(&receivedpackets) >= 1) {
       byte temparr1[6] = {0, 0, 0, 0, 0, 0};
       byte temparr2[6] = {0, 0, 0, 0, 0, 0};
       byte temparr3[10] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
-      L2FrameUDP received(temparr1, temparr2, {0x0, 0x0, 0x0, 0x0, {0x0, 0x0, {0x0, {0x0, {temparr3}}}, false}}, 0x0);
+
+      L7Data l7x(temparr3);
+      L6Data l6x(0x0, l7x);
+      L5Session l5x(0x0, l6x);
+      L4DatagramUDP l4x(0x0, 0x0, l5x, false);
+      L3PacketUDP l3x(0x0, 0x0, 0x0, 0x0, l4x);
+      L2FrameUDP received(temparr1, temparr2, l3x, 0x0);
       queue_remove_blocking(&receivedpackets, (void*)&received);
       lcdwritepacket(received, true, DEC);
       if((received.L3.L4.L5.L6.protocolid == 0) && (received.L3.L4.L5.L6.L7.data0 == 53) && (received.L3.L4.L5.L6.L7.data1 == 0x2)) {
@@ -394,7 +399,7 @@ void setup() {
         uint32_t sourcemask       = 0x00000000;
         byte TTL = 254;
         L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
-        watchdog_update();
+        //watchdog_update();
         
         byte destinationmac[6]  = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
         L2FrameUDP l2(destinationmac, macaddress, l3, 0x0);
@@ -433,7 +438,7 @@ void setup() {
         byte TTL = 254;
         L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
         
-        watchdog_update();
+       // watchdog_update();
         
         byte destinationmac[6]  = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
         L2FrameUDP l2(destinationmac, macaddress, l3, 0x0);
@@ -442,7 +447,7 @@ void setup() {
         lcdwritepacket(l2, false, HEX);
       }
     }
-    watchdog_update();
+    //watchdog_update();
     delay(1000);
   }
 }
@@ -455,14 +460,15 @@ uint32_t press15started = 0;
 void loopreceive() {
   uint8_t rxbuffer;
   queue_t rxqueue;
-  queue_init(&rxqueue, 1, (sizeof(L2FrameUDP) * 8) - 1);
+  //queue_init(&rxqueue, 1, (sizeof(L2FrameUDP) * 8) - 1);
+  queue_init(&rxqueue, 1, sizeof(L2FrameUDP) * 8);
   bool avail = false;
   int lastavail = 0;
   int samecounter = 0;
   
   while (true) {
     avail = uart_is_readable(UART_ID);
-    if(avail == lastavail) {
+    /*if(avail == lastavail) {
       samecounter++;
       if(samecounter >= 40) {
         samecounter = 0;
@@ -476,7 +482,20 @@ void loopreceive() {
         lastavail = avail;
         samecounter = 0;
       } 
+    }*/
+    if(avail) {
+      uart_read_blocking(UART_ID, &rxbuffer, 1);
+      queue_add_blocking(&rxqueue, (void*)&rxbuffer);
     }
+    if(queue_get_level(&rxqueue) == sizeof(L2FrameUDP)) {
+      uint8_t bytes[sizeof(L2FrameUDP)];
+      for(int i = 0; i < sizeof(L2FrameUDP); i++) {
+        queue_remove_blocking(&rxqueue, &(bytes[i]));
+      }
+      L2FrameUDP received = *(reinterpret_cast<L2FrameUDP*>(bytes));
+      queue_add_blocking(&receivedpackets, (void*)&received);
+    }
+    /*
     if(avail) {
       int bytecount = 0; // queue is 351B == (sizeof(L2FrameUDP) * 8) - 1, only 7 correct packets can be stored, the last 43 bytes of data is to account for the bad bytes to be discared
       while((avail == true) && (bytecount < ((sizeof(L2FrameUDP) * 7) - 1))) {
@@ -512,11 +531,12 @@ void loopreceive() {
         }
       } 
     }
+    */
     delay(1000);  
   }
 }
 
-void loop() {
+void loop() {/*
   if(queue_get_level(&receivedpackets) >= 1) {
     byte temparr1[6] = {0, 0, 0, 0, 0, 0};
     byte temparr2[6] = {0, 0, 0, 0, 0, 0};
@@ -528,9 +548,9 @@ void loop() {
       otherhostip = (received.L3.L4.L5.L6.L7.data0 << (8*3)) + (received.L3.L4.L5.L6.L7.data1 << (8*2)) + (received.L3.L4.L5.L6.L7.data2 << (8)) + received.L3.L4.L5.L6.L7.data3;
     } else if(received.L3.L4.L5.L6.protocolid == 1) {
       if(otherhostip == 0) {
-        byte icmpdata[10] = {macaddress[0],  macaddress[1], macaddress[2], macaddress[3], macaddress[4], 0x1, 0x0, 0x0, 0x0, 0x0};
+        byte icmpdata[10] = {macaddress[0],  macaddress[1], macaddress[2], macaddress[3], macaddress[4], 0x2, 0x0, 0x0, 0x0, 0x0};
         L7Data l7(icmpdata);
-        L6Data l6(4 /* arp */, l7);
+        L6Data l6(4 /* arp *\/, l7);
         L5Session l5(0, l6);
         L4DatagramUDP l4(0, 0, l5, false);
         uint32_t destinationip    = gatewayaddress;
@@ -539,17 +559,17 @@ void loop() {
         byte TTL = 254;
         L3PacketUDP l3(gatewayaddress, sourceip, sourcemask, TTL, l4);
         
-        watchdog_update();
+        //watchdog_update();
         
         L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
         l2.crc = calculatecrc32(l2);
         sendpacketUDP(l2);
         lcdwritepacket(l2, false, HEX);
-        watchdog_update();
+        //watchdog_update();
       } else {
         byte senddata[10] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}; // 0: 0 echo reply
         L7Data l7(senddata);
-        L6Data l6(1 /* send */, l7);
+        L6Data l6(1 /* send *\/, l7);
         L5Session l5(0, l6);
         L4DatagramUDP l4(0, 0, l5, false);
         uint32_t destinationip    = gatewayaddress;
@@ -558,13 +578,13 @@ void loop() {
         byte TTL = 254;
         L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
         
-        watchdog_update();
+        //watchdog_update();
         
         L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
         l2.crc = calculatecrc32(l2);
         sendpacketUDP(l2);
         lcdwritepacket(l2, false, HEX);
-        watchdog_update();
+        //watchdog_update();
       }
     } else if (received.L3.L4.L5.L6.protocolid == 2) { // send  
       //nothing to be done here actually
@@ -577,9 +597,9 @@ void loop() {
         //send arp, send icmp
         button14pressed = false;
         if(otherhostip == 0) {
-          byte icmpdata[10] = {macaddress[0],  macaddress[1], macaddress[2], macaddress[3], macaddress[4], 0x1, 0x0, 0x0, 0x0, 0x0};
+          byte icmpdata[10] = {macaddress[0],  macaddress[1], macaddress[2], macaddress[3], macaddress[4], 0x2, 0x0, 0x0, 0x0, 0x0};
           L7Data l7(icmpdata);
-          L6Data l6(4 /* arp */, l7);
+          L6Data l6(4 /* arp *\/, l7);
           L5Session l5(0, l6);
           L4DatagramUDP l4(0, 0, l5, false);
           uint32_t destinationip    = gatewayaddress;
@@ -588,17 +608,17 @@ void loop() {
           byte TTL = 254;
           L3PacketUDP l3(gatewayaddress, sourceip, sourcemask, TTL, l4);
           
-          watchdog_update();
+         // watchdog_update();
           
           L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
           l2.crc = calculatecrc32(l2);
           sendpacketUDP(l2);
           lcdwritepacket(l2, false, HEX);
-          watchdog_update();
+          //watchdog_update();
         } else {
           byte icmpdata[10] = {80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}; // 8: 0 echo request
           L7Data l7(icmpdata);
-          L6Data l6(1 /* icmp */, l7);
+          L6Data l6(1 /* icmp *\/, l7);
           L5Session l5(0, l6);
           L4DatagramUDP l4(0, 0, l5, false);
           uint32_t destinationip    = gatewayaddress;
@@ -607,13 +627,13 @@ void loop() {
           byte TTL = 254;
           L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
           
-          watchdog_update();
+          //watchdog_update();
           
           L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
           l2.crc = calculatecrc32(l2);
           sendpacketUDP(l2);
           lcdwritepacket(l2, false, HEX);
-          watchdog_update();
+          //watchdog_update();
         }
       }
     } else if (button15pressed){
@@ -627,7 +647,7 @@ void loop() {
         if(otherhostip == 0) {
           byte icmpdata[10] = {macaddress[0],  macaddress[1], macaddress[2], macaddress[3], macaddress[4], 0x2, 0x0, 0x0, 0x0, 0x0};
           L7Data l7(icmpdata);
-          L6Data l6(4 /* arp */, l7);
+          L6Data l6(4 /* arp *\/, l7);
           L5Session l5(0, l6);
           L4DatagramUDP l4(0, 0, l5, false);
           uint32_t destinationip    = gatewayaddress;
@@ -636,17 +656,17 @@ void loop() {
           byte TTL = 254;
           L3PacketUDP l3(gatewayaddress, sourceip, sourcemask, TTL, l4);
           
-          watchdog_update();
+          //watchdog_update();
           
           L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
           l2.crc = calculatecrc32(l2);
           sendpacketUDP(l2);
           lcdwritepacket(l2, false, HEX);
-          watchdog_update();
+          //watchdog_update();
         } else {
           byte senddata[10] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
           L7Data l7(senddata);
-          L6Data l6(2 /* send */, l7);
+          L6Data l6(2 /* send *\/, l7);
           L5Session l5(0, l6);
           L4DatagramUDP l4(0, 0, l5, false);
           uint32_t destinationip    = gatewayaddress;
@@ -655,13 +675,13 @@ void loop() {
           byte TTL = 254;
           L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
           
-          watchdog_update();
+          //watchdog_update();
           
           L2FrameUDP l2(gatewaymac, macaddress, l3, 0x0);
           l2.crc = calculatecrc32(l2);
           sendpacketUDP(l2);
           lcdwritepacket(l2, false, HEX);
-          watchdog_update();
+          //watchdog_update();
         }
       }
     } else {
@@ -673,5 +693,5 @@ void loop() {
       }
     }
     delay(1000);
-  }
+  }*/
 }
