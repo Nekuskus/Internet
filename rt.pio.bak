@@ -7,7 +7,7 @@ tx:
 	nop
 	nop
 	nop
-	pull 		side 000
+	pull
 	jmp tx1
 txloop:
 	nop
@@ -41,12 +41,10 @@ rx1:
 % c-sdk {
 	static inline void transfer_program_init(PIO pio, uint sm, uint offset, uint pin) {
 		pio_sm_config c = transfer_program_get_default_config(offset);	
-		sm_config_set_clkdiv(&c, 25);
+		sm_config_set_clkdiv(&c, 5000);
 		sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 		sm_config_set_out_pins(&c, pin, 3);
-		sm_config_set_sideset_pins(&c, pin);
-		sm_config_set_sideset_pins(&c, pin+1);
-		sm_config_set_sideset_pins(&c, pin+2);
+		sm_config_set_set_pins(&c, pin, 3);
 		//true: output, false: input
 		pio_sm_set_consecutive_pindirs(pio, sm, pin, 3, true);
 		
@@ -63,7 +61,7 @@ rx1:
 	
 	static inline void receive_program_init(PIO pio, uint sm, uint offset, uint pin) {
 		pio_sm_config c = receive_program_get_default_config(offset);	
-		sm_config_set_clkdiv(&c, 25);
+		sm_config_set_clkdiv(&c, 500);
 		sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
 		sm_config_set_in_pins(&c, pin);
 		sm_config_set_in_pins(&c, pin+1);

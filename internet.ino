@@ -1,14 +1,21 @@
-#include <hardware/pio.h>
-#include "rt.pio.h"
+//#include <hardware/pio.h>
+//#include "rt.pio.h"
 #include "I2CCom/I2CCom.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include <LiquidCrystal.h>
 #include <bitset>
+#include "hardware/watchdog.h"
+#include "hardware/uart.h"
+
+#define UART_ID uart0
+#define BAUD_RATE 9600
+#define UART_TX_PIN 0
+#define UART_RX_PIN 1
 
 char hex[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 
-byte macaddress[6] = {0b10000101, 0b10010000, 0b00000000, 0b00000000, 0b00000000, 0x2};
+byte macaddress[6] = {0b10000101, 0b10010000, 0b00000000, 0b00000000, 0b00000000, 0x1};
 
 uint32_t gatewayaddress;
 uint32_t gatewaymask;
@@ -147,18 +154,18 @@ class L3PacketUDP {
 };
 class L2FrameUDP {
   public:
-    byte destinationmac5;
-    byte destinationmac4;
-    byte destinationmac3;
-    byte destinationmac2;
-    byte destinationmac1;
     byte destinationmac0;
-    byte sourcemac5;
-    byte sourcemac4;
-    byte sourcemac3;
-    byte sourcemac2;
-    byte sourcemac1;
+    byte destinationmac1;
+    byte destinationmac2;
+    byte destinationmac3;
+    byte destinationmac4;
+    byte destinationmac5;
     byte sourcemac0;
+    byte sourcemac1;
+    byte sourcemac2;
+    byte sourcemac3;
+    byte sourcemac4;
+    byte sourcemac5;
     L3PacketUDP L3;
     uint32_t crc;
     L2FrameUDP(byte _destinationmac[6], byte _sourcemac[6], L3PacketUDP l3, uint32_t _crc = 0) : sourcemac0{_sourcemac[0]}, sourcemac1{_sourcemac[1]}, sourcemac2{_sourcemac[2]}, sourcemac3{_sourcemac[3]}, sourcemac4{_sourcemac[4]}, sourcemac5{_sourcemac[5]}, destinationmac0{_destinationmac[0]}, destinationmac1{_destinationmac[1]}, destinationmac2{_destinationmac[2]}, destinationmac3{_destinationmac[3]}, destinationmac4{_destinationmac[4]}, destinationmac5{_destinationmac[5]}, L3{l3}, crc{_crc} {
@@ -210,12 +217,13 @@ uint8_t readEth() {
   return 0;
 }
 
+/*
 volatile PIO pio = pio0;
 volatile uint offset0 = pio_add_program(pio, &transfer_program);
 volatile uint offset1 = pio_add_program(pio,  &receive_program);
 volatile uint sm_transfer = pio_claim_unused_sm(pio, true);
 volatile uint sm_receive  = pio_claim_unused_sm(pio, true);
-
+*/
 
 void lcdwritepacket(L2FrameUDP l2, bool incoming, int ipsystem = DEC) {
   lcd.setCursor(0, lcdline);
@@ -257,20 +265,23 @@ void lcdwritepacket(L2FrameUDP l2, bool incoming, int ipsystem = DEC) {
 }
 
 void sendpacketUDP(L2FrameUDP l2) {
-  lcd.print(sizeof(L2FrameUDP) * 8); 
-  std::bitset<sizeof(L2FrameUDP) * 8> packet(reinterpret_cast<char*>(&l2));
+  //std::bitset<sizeof(L2FrameUDP) * 8> packet = *(reinterpret_cast<std::bitset<sizeof(L2FrameUDP) * 8>*>(&l2));
+  uint8_t* bytes = reinterpret_cast<uint8_t*>(&l2);
+  //lcd.print(((unsigned int)packet[0] << 7) + ((unsigned int)packet[1] << 6) + ((unsigned int)packet[2] << 5) + ((unsigned int)packet[3] << 4) + ((unsigned int)packet[4] << 3) + ((unsigned int)packet[5] << 2) + ((unsigned int)packet[6] << 1) + (unsigned int)packet[7], BIN);
   //pio_sm_put_blocking(pio, sm_transfer, 0xFFFFFFFF);
-  int i = 0;
-  while(i < (sizeof(L2FrameUDP)*8)) {
-    pio_sm_put_blocking(pio, sm_transfer, (0x0 << 31) + (0x0 << 30) + (packet[i+29] << 29) + (packet[i+28] << 28) + (packet[i+27] << 27)+(packet[i+26] << 26)+(packet[i+25] << 25)+(packet[i+24] << 24)+(packet[i+23] << 23)+(packet[i+23] << 23)+(packet[i+22] << 22)+(packet[i+21] << 21)+(packet[i+20] << 20)+(packet[i+19] << 19)+(packet[i+18] << 18)+(packet[i+17] << 17)+(packet[i+16] << 16)+(packet[i+15] << 15)+(packet[i+14] << 14)+(packet[i+13] << 13)+(packet[i+12] << 12)+(packet[i+11] << 11)+(packet[i+10] << 10)+(packet[i+9] << 9)+(packet[i+8] << 8)+(packet[i+7] << 7)+(packet[i+6] << 6)+(packet[i+5] << 5)+(packet[i+4] << 4)+(packet[i+3] << 3)+(packet[i+2] << 2)+(packet[i+1] << 1) + packet[i]);
-    i+=30;
-  }
+  //int i = 0;
+  //while (i < (sizeof(L2FrameUDP) * 8)) {
+  //  pio_sm_put_blocking(pio, sm_transfer, (0x0 << 31) + (0x0 << 30) + (packet[i + 29] << 29) + (packet[i + 28] << 28) + (packet[i + 27] << 27) + (packet[i + 26] << 26) + (packet[i + 25] << 25) + (packet[i + 24] << 24) + (packet[i + 23] << 23) + (packet[i + 23] << 23) + (packet[i + 22] << 22) + (packet[i + 21] << 21) + (packet[i + 20] << 20) + (packet[i + 19] << 19) + (packet[i + 18] << 18) + (packet[i + 17] << 17) + (packet[i + 16] << 16) + (packet[i + 15] << 15) + (packet[i + 14] << 14) + (packet[i + 13] << 13) + (packet[i + 12] << 12) + (packet[i + 11] << 11) + (packet[i + 10] << 10) + (packet[i + 9] << 9) + (packet[i + 8] << 8) + (packet[i + 7] << 7) + (packet[i + 6] << 6) + (packet[i + 5] << 5) + (packet[i + 4] << 4) + (packet[i + 3] << 3) + (packet[i + 2] << 2) + (packet[i + 1] << 1) + packet[i]);
+  //  i += 30;
+  //  watchdog_update();
+  //}
   //int bitsleft = 12;
-  pio_sm_put_blocking(pio, sm_transfer, packet[(sizeof(L2FrameUDP) * 8) - 1] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 1] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 2] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 3] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 4] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 5] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 6] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 7] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 8] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 9] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 10] + packet[(sizeof(L2FrameUDP) * 8) - 1 - 11]);
-
+  //pio_sm_put_blocking(pio, sm_transfer, (packet[(sizeof(L2FrameUDP) * 8) - 1] << 11) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 1] << 10) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 2] << 9) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 3] << 8) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 4] << 7) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 5] << 6) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 6] << 5) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 7] << 4) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 8] << 3) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 9] << 2) + (packet[(sizeof(L2FrameUDP) * 8) - 1 - 10] << 1) + packet[(sizeof(L2FrameUDP) * 8) - 1 - 11]);
+  uart_write_blocking(UART_ID, bytes, sizeof(L2FrameUDP));
 }
 
 void setup() {
+  /*
   // data pins
   pinMode(1, OUTPUT);
   pinMode(2, OUTPUT);
@@ -297,10 +308,17 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   transfer_program_init(pio, sm_transfer, offset0, 0);
   receive_program_init (pio, sm_receive,  offset1, 3);
-  multicore_launch_core1(loopreceive);
   digitalWrite(LED_BUILTIN, HIGH);
   delay(2000);
   digitalWrite(LED_BUILTIN, LOW);
+  */
+  uart_init(UART_ID, BAUD_RATE);
+
+  gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
+  gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
+  
+  multicore_launch_core1(loopreceive);
+  watchdog_enable(20000, 0);
 
   lcd.begin(16, 2);
   lcd.clear();
@@ -309,13 +327,20 @@ void setup() {
     lcd.print(hex[(x >> 4) & 0b1111]);
     lcd.print(hex[x & 0b1111]);
   }
+  //if (watchdog_caused_reboot()) {
+    //lcd.setCursor(0, 0);
+    //lcd.print("Watchdog trigger");
+  //}
   lcd.setCursor(0, 1);
+  watchdog_update();
   //pio_sm_put_blocking(pio, sm_transfer, 0b00100111111111111111111111111111);
 
   //L2FrameUDP testl2{destinationmac, sourcemac, {destinationip, sourceip, sourcemask, TTL, {destinationport, sourceport, {sessionid, {protocolid, {dhcpdata}}}, false}}, 0x0};
 }
 
 void loop() {
+
+  watchdog_update();
 
   byte dhcpdata[10] = {53, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}; // DHCPDISCOVER
 
@@ -340,6 +365,7 @@ void loop() {
   //lcd.print(TTL);
   L3PacketUDP l3(destinationip, sourceip, sourcemask, TTL, l4);
 
+  watchdog_update();
 
   byte destinationmac[6]  = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
   byte sourcemac[6]       = {0x1, 0x2, 0x3, 0x4, 0x5, 0x6};
@@ -355,17 +381,17 @@ void loop() {
 
   //lcd.print(sizeof(l2) + sizeof(l3) + sizeof(l4) + sizeof(l5) + sizeof(l6) + sizeof(l7));
   //pio_sm_put_blocking(pio, sm_transfer, )
-
+  watchdog_update();
   sendpacketUDP(l2);
-  
-  while (true) {}
-
+  lcdwritepacket(l2, false, HEX);
+  //while (true) {}
+  watchdog_update();
   delay(5000);
 }
 
 
 void loopreceive() {
   while (true) {
-    pio_sm_get_blocking(pio, sm_receive);
+    //pio_sm_get_blocking(pio, sm_receive);
   }
 }

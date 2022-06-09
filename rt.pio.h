@@ -21,7 +21,7 @@ static const uint16_t transfer_program_instructions[] = {
     0xe029, //  1: set    x, 9                       
     0xa042, //  2: nop                               
     0xa042, //  3: nop                               
-    0xe000, //  4: set    pins, 0                    
+    0xa042, //  4: nop                               
     0x80a0, //  5: pull   block                      
     0x000f, //  6: jmp    15                         
     0xa042, //  7: nop                               
@@ -84,37 +84,37 @@ static inline pio_sm_config receive_program_get_default_config(uint offset) {
     return c;
 }
 
-	static inline void transfer_program_init(PIO pio, uint sm, uint offset, uint pin) {
-		pio_sm_config c = transfer_program_get_default_config(offset);	
-		sm_config_set_clkdiv(&c, 25);
-		sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
-		sm_config_set_out_pins(&c, pin, 3);
-		sm_config_set_set_pins(&c, pin, 3);
-		//true: output, false: input
-		pio_sm_set_consecutive_pindirs(pio, sm, pin, 3, true);
-		sm_config_set_out_special(&c, true, false, pin);
-		sm_config_set_out_special(&c, true, false, pin+1);
-		sm_config_set_out_special(&c, true, false, pin+2);
-		pio_gpio_init(pio, pin);
-		pio_gpio_init(pio, pin + 1);
-		pio_gpio_init(pio, pin + 2);
-		pio_sm_init(pio, sm, offset, &c);
-		pio_sm_set_enabled(pio, sm, true);
-	}
-	static inline void receive_program_init(PIO pio, uint sm, uint offset, uint pin) {
-		pio_sm_config c = receive_program_get_default_config(offset);	
-		sm_config_set_clkdiv(&c, 25);
-		sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
-		sm_config_set_in_pins(&c, pin);
-		sm_config_set_in_pins(&c, pin+1);
-		sm_config_set_in_pins(&c, pin+2);
-		//true: output, false: input
-		pio_sm_set_consecutive_pindirs(pio, sm, pin, 3, false);
-		pio_gpio_init(pio, pin);
-		pio_gpio_init(pio, pin + 1);
-		pio_gpio_init(pio, pin + 2);
-		pio_sm_init(pio, sm, offset, &c);
-		pio_sm_set_enabled(pio, sm, true);
-	}
+  static inline void transfer_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    pio_sm_config c = transfer_program_get_default_config(offset);  
+    sm_config_set_clkdiv(&c, 500);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_out_pins(&c, pin, 3);
+    sm_config_set_set_pins(&c, pin, 3);
+    //true: output, false: input
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 3, true);
+    sm_config_set_out_special(&c, true, false, pin);
+    sm_config_set_out_special(&c, true, false, pin+1);
+    sm_config_set_out_special(&c, true, false, pin+2);
+    pio_gpio_init(pio, pin);
+    pio_gpio_init(pio, pin + 1);
+    pio_gpio_init(pio, pin + 2);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+  }
+  static inline void receive_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    pio_sm_config c = receive_program_get_default_config(offset); 
+    sm_config_set_clkdiv(&c, 500);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    sm_config_set_in_pins(&c, pin);
+    sm_config_set_in_pins(&c, pin+1);
+    sm_config_set_in_pins(&c, pin+2);
+    //true: output, false: input
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 3, false);
+    pio_gpio_init(pio, pin);
+    pio_gpio_init(pio, pin + 1);
+    pio_gpio_init(pio, pin + 2);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+  }
 
 #endif
