@@ -20,7 +20,7 @@ queue_t receivedpackets;
 
 char hex[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 
-byte macaddress[6] = {0b10000101, 0b10010000, 0b00000000, 0b00000000, 0b00000000, 0x1};
+byte macaddress[6] = {0b10000101, 0b10010000, 0b00000000, 0b00000000, 0b00000000, 0x2};
 
 uint32_t gatewayaddress;
 uint8_t gatewaymac[6];
@@ -448,7 +448,7 @@ void setup() {
       }
     }
     //watchdog_update();
-    delay(1000);
+    delay(4000);
   }
 }
 
@@ -492,7 +492,7 @@ void loopreceive() {
       for(int i = 0; i < sizeof(L2FrameUDP); i++) {
         queue_remove_blocking(&rxqueue, &(bytes[i]));
       }
-      L2FrameUDP received = *(reinterpret_cast<L2FrameUDP*>(bytes));
+      L2FrameUDP received = *(reinterpret_cast<L2FrameUDP*>(&bytes));
       queue_add_blocking(&receivedpackets, (void*)&received);
     }
     /*
